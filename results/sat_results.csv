@@ -1,0 +1,8 @@
+Puzzle,Clues,Configuration,Time_s,Decisions,UnitProps,Backtracks,Backjumps,Timeout
+easy,30,All heuristics,0.002016,0,729,0,0,NO
+easy,30,Unit Prop + VSIDS,0.003449,0,729,0,0,NO
+easy,30,Unit Prop + Pure Literal,0.001726,0,729,0,0,NO
+easy,30,Unit Propagation only,0.002121,0,729,0,0,NO
+easy,30,VSIDS only,17.698370,366780,0,732750,0,NO
+easy,30,Pure Literal only,TIMEOUT,0,0,0,0,YES
+easy,30,No heuristics,TIMEOUT,0,0,0,0,YES

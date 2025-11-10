@@ -4,8 +4,11 @@ sat_solver.exe
 *.out
 *.exe.stackdump
 
+# Virtualenv
+venv/
+
 # Object files
-*.o
+*.o         
 *.obj
 
 # Build directories
