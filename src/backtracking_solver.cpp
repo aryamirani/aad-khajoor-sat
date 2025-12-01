@@ -10,14 +10,13 @@
 
 BacktrackingSolver::BacktrackingSolver(const Grid& puzzle) : grid(puzzle) {}
 
-bool BacktrackingSolver::solve(bool use_mrv, bool use_fc, bool use_backjumping) {
-    stats = {0, 0, 0};
+bool BacktrackingSolver::solve(bool use_mrv, bool use_fc) {
+    stats = {0, 0};
     // Domains: domains[r][c][k] is true if k (1-9) is possible for (r,c)
     Domains domains;
     initialize_domains(domains);
 
-    int dummy_conflict = 0;
-    return solve_recursive(use_mrv, use_fc, use_backjumping, domains, 0, &dummy_conflict);
+    return solve_recursive(use_mrv, use_fc, domains);
 }
 
 void BacktrackingSolver::initialize_domains(Domains& domains) {
@@ -192,9 +191,7 @@ bool BacktrackingSolver::is_valid(int r, int c, int k) {
     return true; // No conflicts
 }
 
-bool BacktrackingSolver::solve_recursive(bool use_mrv, bool use_fc, bool use_backjumping,
-                                         Domains domains, int decision_level,
-                                         int* conflict_level) {
+bool BacktrackingSolver::solve_recursive(bool use_mrv, bool use_fc, Domains domains) {
     int r, c;
     
     // Select next empty cell using chosen heuristic
@@ -230,53 +227,16 @@ bool BacktrackingSolver::solve_recursive(bool use_mrv, bool use_fc, bool use_bac
         }
     }
 
-    // If no possible values, backtrack/backjump
+    // If no possible values, backtrack
     if (possible_values.empty() && grid[r][c] == 0) {
         stats.backtracks++;
-        
-        if (use_backjumping && conflict_level != nullptr) {
-            // Analyze conflict: find which prior decision caused this
-            // For Sudoku, conflicts are caused by recent assignments in same row/col/block
-            // We backjump to the most recent conflicting decision
-            int max_conflict = 0;
-            for (int i = 0; i < 9; ++i) {
-                // Check row
-                if (grid[r][i] != 0) {
-                    max_conflict = std::max(max_conflict, decision_level - 1);
-                }
-                // Check column
-                if (grid[i][c] != 0) {
-                    max_conflict = std::max(max_conflict, decision_level - 1);
-                }
-            }
-            // Check 3x3 block
-            int start_row = 3 * (r / 3);
-            int start_col = 3 * (c / 3);
-            for (int i = 0; i < 3; ++i) {
-                for (int j = 0; j < 3; ++j) {
-                    if (grid[start_row + i][start_col + j] != 0) {
-                        max_conflict = std::max(max_conflict, decision_level - 1);
-                    }
-                }
-            }
-            *conflict_level = max_conflict;
-            
-            if (*conflict_level < decision_level - 1) {
-                stats.backjumps++;
-            }
-        }
-        
         return false; 
     }
 
     // Try each possible value
-    int local_conflict = decision_level;
     for (int k : possible_values) {
         stats.decisions++;
         grid[r][c] = k; // Make assignment
-
-        int child_conflict = decision_level + 1;
-        bool success = false;
 
         if (use_fc) {
             // Forward checking: propagate constraints
@@ -285,20 +245,14 @@ bool BacktrackingSolver::solve_recursive(bool use_mrv, bool use_fc, bool use_bac
             
             if (propagate_constraints(r, c, k, domains_copy, changes)) {
                 // No conflicts - continue recursively
-                success = solve_recursive(use_mrv, use_fc, use_backjumping, 
-                                        domains_copy, decision_level + 1, &child_conflict);
-                if (success) {
+                if (solve_recursive(use_mrv, use_fc, domains_copy)) {
                     return true; // Solution found!
                 }
-            } else {
-                // Immediate conflict from forward checking
-                child_conflict = decision_level;
             }
+            // Conflicts detected or recursive call failed
         } else {
             // No forward checking - just recurse
-            success = solve_recursive(use_mrv, use_fc, use_backjumping,
-                                    domains, decision_level + 1, &child_conflict);
-            if (success) {
+            if (solve_recursive(use_mrv, use_fc, domains)) {
                 return true; // Solution found!
             }
         }
@@ -306,21 +260,6 @@ bool BacktrackingSolver::solve_recursive(bool use_mrv, bool use_fc, bool use_bac
         // Backtrack: undo assignment
         stats.backtracks++;
         grid[r][c] = 0;
-        
-        // Backjumping: propagate conflict level upward
-        if (use_backjumping && child_conflict < decision_level) {
-            if (conflict_level != nullptr) {
-                *conflict_level = child_conflict;
-            }
-            return false; // Backjump to higher level
-        }
-        
-        local_conflict = std::min(local_conflict, child_conflict);
-    }
-    
-    // All values tried - propagate conflict level
-    if (use_backjumping && conflict_level != nullptr) {
-        *conflict_level = local_conflict;
     }
     
     return false; // All values tried - no solution on this path

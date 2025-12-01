@@ -132,48 +132,40 @@ int main(int argc, char* argv[]) {
     std::cout << "BACKTRACKING SOLVER" << std::endl;
     std::cout << std::string(70, '=') << std::endl;
 
-    // Test configurations: (name, use_mrv, use_fc, use_backjumping)
-    std::vector<std::tuple<std::string, bool, bool, bool>> bt_configs = {
-        {"MRV + FC + Backjumping", true, true, true},
-        {"MRV + Forward Checking", true, true, false},
-        {"MRV + Backjumping", true, false, true},
-        {"MRV only", true, false, false},
-        {"FC + Backjumping", false, true, true},
-        {"Forward Checking only", false, true, false},
-        {"Backjumping only", false, false, true},
-        {"No heuristics", false, false, false},
+    // Test configurations: (name, use_mrv, use_fc)
+    std::vector<std::tuple<std::string, bool, bool>> bt_configs = {
+        {"MRV + Forward Checking", true, true},
+        {"MRV only", true, false},
+        {"Forward Checking only", false, true},
+        {"No heuristics", false, false},
     };
 
     struct BtResult { 
         std::string name; 
         double time; 
-        long long dec, back, jumps; 
+        long long dec, back; 
         bool success; 
     };
     std::vector<BtResult> bt_results;
 
-    for (const auto& [name, use_mrv, use_fc, use_bj] : bt_configs) {
+    for (const auto& [name, use_mrv, use_fc] : bt_configs) {
         BacktrackingSolver solver(puzzle);
         std::cout << "\n[" << name << "]" << std::endl;
         
         Timer t;
-        bool solved = solver.solve(use_mrv, use_fc, use_bj);
+        bool solved = solver.solve(use_mrv, use_fc);
         double runtime = t.elapsed_s();
         
         if (solved) {
             std::cout << "  ✓ Solved in " << std::fixed << std::setprecision(6) 
                       << runtime << "s" << std::endl;
             std::cout << "    Decisions: " << solver.stats.decisions 
-                      << ", Backtracks: " << solver.stats.backtracks;
-            if (use_bj) {
-                std::cout << ", Backjumps: " << solver.stats.backjumps;
-            }
-            std::cout << std::endl;
+                      << ", Backtracks: " << solver.stats.backtracks << std::endl;
             bt_results.push_back({name, runtime, solver.stats.decisions, 
-                                 solver.stats.backtracks, solver.stats.backjumps, true});
+                                 solver.stats.backtracks, true});
         } else {
             std::cout << "  ✗ Failed to solve" << std::endl;
-            bt_results.push_back({name, runtime, 0, 0, 0, false});
+            bt_results.push_back({name, runtime, 0, 0, false});
         }
     }
     
@@ -271,16 +263,14 @@ int main(int argc, char* argv[]) {
     std::cout << std::setw(30) << "Configuration" 
               << std::setw(15) << "Time (s)" 
               << std::setw(15) << "Decisions" 
-              << std::setw(15) << "Backtracks"
-              << "Backjumps" << std::endl;
-    std::cout << std::string(85, '-') << std::endl;
+              << "Backtracks" << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
     
     for(const auto& res : bt_results) {
         std::cout << std::setw(30) << res.name 
                   << std::setw(15) << std::fixed << std::setprecision(6) << res.time 
                   << std::setw(15) << res.dec 
-                  << std::setw(15) << res.back
-                  << res.jumps << std::endl;
+                  << res.back << std::endl;
     }
     
     std::cout << "\nSAT Solver:" << std::endl;

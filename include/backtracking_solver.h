@@ -53,7 +53,6 @@ public:
     struct Statistics {
         long long decisions = 0;   ///< Number of value assignments attempted
         long long backtracks = 0;  ///< Number of times backtracking occurred
-        long long backjumps = 0;   ///< Number of non-chronological backjumps performed
     } stats;
     
     /**
@@ -71,7 +70,6 @@ public:
      * 
      * @param use_mrv If true, uses Minimum Remaining Values heuristic for cell selection
      * @param use_fc If true, uses Forward Checking for constraint propagation
-     * @param use_backjumping If true, uses Conflict-Driven Backjumping to skip useless search
      * 
      * @return bool True if puzzle is solvable, false otherwise
      * 
@@ -79,14 +77,10 @@ public:
      * @note Statistics are accumulated in the `stats` member
      * @note The original `grid` member is restored if solving fails
      * 
-     * **Backjumping:** When a conflict is detected, backjumps to the decision level
-     * that caused the conflict instead of chronologically backtracking one level.
-     * This skips useless intermediate search and dramatically reduces backtracks.
-     * 
      * Time Complexity: O(9^(n*n)) worst case, where n is the number of empty cells
      * Space Complexity: O(n*n) for recursion stack and domain tracking
      */
-    bool solve(bool use_mrv, bool use_fc, bool use_backjumping = false);
+    bool solve(bool use_mrv, bool use_fc);
     
 private:
     /**
@@ -243,29 +237,21 @@ private:
      * 2. Try each valid value for that cell
      * 3. Propagate constraints (if FC enabled)
      * 4. Recursively solve remaining puzzle
-     * 5. Backtrack or backjump on failure
+     * 5. Backtrack on failure
      * 
      * @param use_mrv Whether to use MRV heuristic for cell selection
      * @param use_fc Whether to use Forward Checking for propagation
-     * @param use_backjumping Whether to use conflict-driven backjumping
      * @param domains Current domain state (passed by value for proper backtracking)
-     * @param decision_level Current depth in search tree (for backjumping)
-     * @param conflict_level Output: decision level causing conflict (for backjumping)
      * 
      * @return bool True if solution found, false if current path is impossible
      * 
      * @note Modifies the `grid` member during search
-     * @note Updates `stats` counters for decisions, backtracks, and backjumps
+     * @note Updates `stats` counters for decisions and backtracks
      * 
-     * **Backjumping:** When a conflict occurs, analyzes which decision caused it
-     * and returns a conflict_level < decision_level to skip useless search paths.
-     * 
-     * Time Complexity: O(9^(n*n)) worst case, but often much faster with backjumping
+     * Time Complexity: O(9^(n*n)) worst case
      * Space Complexity: O(n*n) for recursion depth and domain copies
      */
-    bool solve_recursive(bool use_mrv, bool use_fc, bool use_backjumping,
-                        Domains domains, int decision_level = 0,
-                        int* conflict_level = nullptr);
+    bool solve_recursive(bool use_mrv, bool use_fc, Domains domains);
 };
 
 #endif // BACKTRACKING_SOLVER_H
