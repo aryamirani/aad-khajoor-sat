@@ -34,11 +34,6 @@ Thumbs.db
 # MinGW / MSYS2
 *.dll
 
-# CMake files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
 
 # JetBrains
 .idea/
