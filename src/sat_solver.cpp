@@ -180,7 +180,7 @@ int SudokuSATSolver::bcp(std::vector<int>& trail, bool do_propagation) {
     // Normal BCP with unit propagation
     int head = 0;
     while (head < static_cast<int>(trail.size())) {
-        int assigned_lit = trail[head++];
+        head++; // Move to next assigned literal
         
         for (const auto& clause : clauses) {
             int unassigned_lit = 0;

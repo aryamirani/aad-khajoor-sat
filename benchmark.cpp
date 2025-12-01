@@ -14,6 +14,9 @@
 #include <string>
 #include <iomanip>
 #include <tuple>
+#include <future>
+#include <chrono>
+#include <memory>
 
 #include "sudoku_types.h"
 #include "backtracking_solver.h"
@@ -144,28 +147,54 @@ int main(int argc, char* argv[]) {
         std::string name; 
         double time; 
         long long dec, back; 
-        bool success; 
+        bool success;
+        bool timed_out;
     };
     std::vector<BtResult> bt_results;
+    std::vector<std::future<bool>> bt_futures; // Store futures to prevent blocking
 
     for (const auto& [name, use_mrv, use_fc] : bt_configs) {
-        BacktrackingSolver solver(puzzle);
         std::cout << "\n[" << name << "]" << std::endl;
         
         Timer t;
-        bool solved = solver.solve(use_mrv, use_fc);
-        double runtime = t.elapsed_s();
+        bool solved = false;
+        double runtime = 0.0;
         
-        if (solved) {
-            std::cout << "  ✓ Solved in " << std::fixed << std::setprecision(6) 
-                      << runtime << "s" << std::endl;
-            std::cout << "    Decisions: " << solver.stats.decisions 
-                      << ", Backtracks: " << solver.stats.backtracks << std::endl;
-            bt_results.push_back({name, runtime, solver.stats.decisions, 
-                                 solver.stats.backtracks, true});
-        } else {
-            std::cout << "  ✗ Failed to solve" << std::endl;
-            bt_results.push_back({name, runtime, 0, 0, false});
+        auto solver_ptr = std::make_shared<BacktrackingSolver>(puzzle);
+        
+        auto solve_task = [solver_ptr, use_mrv, use_fc]() {
+            return solver_ptr->solve(use_mrv, use_fc);
+        };
+        
+        auto future = std::async(std::launch::async, solve_task);
+        std::chrono::seconds timeout_duration(30);
+        
+        std::future_status status = future.wait_for(timeout_duration);
+        runtime = t.elapsed_s();
+        
+        if (status == std::future_status::timeout) {
+            std::cout << "  ✗ TIMEOUT (exceeded 30 seconds)" << std::endl;
+            bt_results.push_back({name, 30.0, 0, 0, false, true});
+            // Move future to storage to prevent blocking on destruction
+            bt_futures.push_back(std::move(future));
+        } else if (status == std::future_status::ready) {
+            try {
+                solved = future.get();
+                if (solved) {
+                    std::cout << "  ✓ Solved in " << std::fixed << std::setprecision(6) 
+                              << runtime << "s" << std::endl;
+                    std::cout << "    Decisions: " << solver_ptr->stats.decisions 
+                              << ", Backtracks: " << solver_ptr->stats.backtracks << std::endl;
+                    bt_results.push_back({name, runtime, solver_ptr->stats.decisions, 
+                                         solver_ptr->stats.backtracks, true, false});
+                } else {
+                    std::cout << "  ✗ Failed to solve" << std::endl;
+                    bt_results.push_back({name, runtime, 0, 0, false, false});
+                }
+            } catch (const std::exception& e) {
+                std::cout << "  ✗ Error: " << e.what() << std::endl;
+                bt_results.push_back({name, runtime, 0, 0, false, false});
+            }
         }
     }
     
@@ -210,39 +239,65 @@ int main(int argc, char* argv[]) {
         std::string name; 
         double time; 
         long long dec, props, back; 
-        bool success; 
+        bool success;
+        bool timed_out;
     };
     std::vector<SatResult> sat_results;
+    std::vector<std::future<bool>> sat_futures; // Store futures to prevent blocking
 
-    // Run SAT solver (no timeout - runs until completion)
+    // Run SAT solver with 30-second timeout
     for (const auto& [name, config] : sat_configs) {
         std::cout << "\n[" << name << "]" << std::endl;
         
-        SudokuSATSolver sat_solver(puzzle);
         Timer t;
-        bool solved = sat_solver.solve(config);
-        double runtime = t.elapsed_s();
+        bool solved = false;
+        double runtime = 0.0;
         
-        if (solved) {
-            std::cout << "  ✓ Solved in " << std::fixed << std::setprecision(6) 
-                      << runtime << "s" << std::endl;
-            std::cout << "    Decisions: " << sat_solver.stats.decisions 
-                      << ", Unit Props: " << sat_solver.stats.unit_props 
-                      << ", Backtracks: " << sat_solver.stats.backtracks << std::endl;
-            
-            if (!sat_solution_found) {
-                solved_grid = sat_solver.get_solution_grid();
-                sat_solution_found = true;
+        auto sat_solver_ptr = std::make_shared<SudokuSATSolver>(puzzle);
+        
+        auto solve_task = [sat_solver_ptr, config]() {
+            return sat_solver_ptr->solve(config);
+        };
+        
+        auto future = std::async(std::launch::async, solve_task);
+        std::chrono::seconds timeout_duration(30);
+        
+        std::future_status status = future.wait_for(timeout_duration);
+        runtime = t.elapsed_s();
+        
+        if (status == std::future_status::timeout) {
+            std::cout << "  ✗ TIMEOUT (exceeded 30 seconds)" << std::endl;
+            sat_results.push_back({name, 30.0, 0, 0, 0, false, true});
+            // Move future to storage to prevent blocking on destruction
+            sat_futures.push_back(std::move(future));
+        } else if (status == std::future_status::ready) {
+            try {
+                solved = future.get();
+                if (solved) {
+                    std::cout << "  ✓ Solved in " << std::fixed << std::setprecision(6) 
+                              << runtime << "s" << std::endl;
+                    std::cout << "    Decisions: " << sat_solver_ptr->stats.decisions 
+                              << ", Unit Props: " << sat_solver_ptr->stats.unit_props 
+                              << ", Backtracks: " << sat_solver_ptr->stats.backtracks << std::endl;
+                    
+                    if (!sat_solution_found) {
+                        solved_grid = sat_solver_ptr->get_solution_grid();
+                        sat_solution_found = true;
+                    }
+                    
+                    sat_results.push_back({name, runtime, sat_solver_ptr->stats.decisions, 
+                                          sat_solver_ptr->stats.unit_props, sat_solver_ptr->stats.backtracks, 
+                                          true, false});
+                } else {
+                    std::cout << "  ✗ Failed to solve (Unsatisfiable)" << std::endl;
+                    sat_results.push_back({name, runtime, sat_solver_ptr->stats.decisions, 
+                                          sat_solver_ptr->stats.unit_props, sat_solver_ptr->stats.backtracks, 
+                                          false, false});
+                }
+            } catch (const std::exception& e) {
+                std::cout << "  ✗ Error: " << e.what() << std::endl;
+                sat_results.push_back({name, runtime, 0, 0, 0, false, false});
             }
-            
-            sat_results.push_back({name, runtime, sat_solver.stats.decisions, 
-                                  sat_solver.stats.unit_props, sat_solver.stats.backtracks, 
-                                  true});
-        } else {
-            std::cout << "  ✗ Failed to solve (Unsatisfiable)" << std::endl;
-            sat_results.push_back({name, runtime, sat_solver.stats.decisions, 
-                                  sat_solver.stats.unit_props, sat_solver.stats.backtracks, 
-                                  false});
         }
     }
     
@@ -267,10 +322,16 @@ int main(int argc, char* argv[]) {
     std::cout << std::string(70, '-') << std::endl;
     
     for(const auto& res : bt_results) {
-        std::cout << std::setw(30) << res.name 
-                  << std::setw(15) << std::fixed << std::setprecision(6) << res.time 
-                  << std::setw(15) << res.dec 
-                  << res.back << std::endl;
+        if (res.timed_out) {
+            std::cout << std::setw(30) << res.name 
+                      << std::setw(15) << "> 30.000000"
+                      << std::setw(15) << "N/A" << "N/A (TIMEOUT)" << std::endl;
+        } else {
+            std::cout << std::setw(30) << res.name 
+                      << std::setw(15) << std::fixed << std::setprecision(6) << res.time 
+                      << std::setw(15) << res.dec 
+                      << res.back << std::endl;
+        }
     }
     
     std::cout << "\nSAT Solver:" << std::endl;
@@ -282,7 +343,11 @@ int main(int argc, char* argv[]) {
     std::cout << std::string(70, '-') << std::endl;
     
     for(const auto& res : sat_results) {
-        if (res.success) {
+        if (res.timed_out) {
+            std::cout << std::setw(30) << res.name 
+                      << std::setw(15) << "> 30.000000"
+                      << std::setw(15) << "N/A" << std::setw(15) << "N/A" << "N/A (TIMEOUT)" << std::endl;
+        } else if (res.success) {
             std::cout << std::setw(30) << res.name 
                       << std::setw(15) << std::fixed << std::setprecision(6) << res.time 
                       << std::setw(15) << res.dec 
