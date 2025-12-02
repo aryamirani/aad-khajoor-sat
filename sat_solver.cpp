@@ -540,6 +540,8 @@ public:
     int current_level;
     std::vector<int> var_level;         // Decision level for each variable
     std::vector<int> decision_stack;    // Variables in decision order
+    std::vector<int> trail;             // Trail of all assignments in order
+    std::vector<int> trail_lim;         // Separator indices for each decision level
 
     SudokuSATSolver(const Grid& puzzle) 
         : size(puzzle.size), box_size(puzzle.box_size) {
@@ -681,9 +683,11 @@ public:
         stats = {0, 0, 0};
         assignment.assign(num_vars, -1);
         vsids_scores.assign(num_vars, 0.0);
-        var_level.assign(num_vars, -1);          // ADD THIS
-        decision_stack.clear();                  // ADD THIS
-        current_level = 0;                       // ADD THIS
+        var_level.assign(num_vars, -1);          
+        decision_stack.clear();                  
+        trail.clear();                           // Clear trail
+        trail_lim.clear();                       // Clear trail limits
+        current_level = 0;
         
         if (do_vsids) {
             for (const auto& clause : clauses) {
@@ -767,12 +771,28 @@ private:
                     int var = std::abs(unassigned_lit) - 1;
                     assignment[var] = (unassigned_lit > 0) ? 1 : 0;
                     var_level[var] = current_level; 
+                    trail.push_back(var);  // Add to trail
                     stats.unit_props++;
                     changed = true;
                 }
             }
         }
         return true;
+    }
+
+    // Check for conflicts without propagating (used when unit propagation is disabled)
+    bool check_for_conflicts() {
+        for (const auto& clause : clauses) {
+            if (is_clause_satisfied(clause)) {
+                continue;
+            }
+            
+            // Check if clause is completely falsified
+            if (is_clause_conflicting(clause)) {
+                return false; // Conflict found
+            }
+        }
+        return true; // No conflicts
     }
     
     void pure_literal_assign() {
@@ -797,9 +817,13 @@ private:
             }
         }
         
+        // FIX: Assign variables AND update their decision levels
+        // Also add to trail for proper backtracking
         for (const auto& [var, pol] : polarity) {
             if (pol != -1 && assignment[var] == -1) {
                 assignment[var] = pol;
+                var_level[var] = current_level;
+                trail.push_back(var);  // Add to trail
             }
         }
     }
@@ -827,43 +851,24 @@ private:
     }
     
     bool dpll(bool do_unit_prop, bool do_pure_literal, bool do_vsids) {
-    // Unit propagation
+    // Unit propagation or conflict checking
     if (do_unit_prop) {
         if (!unit_propagate()) {
             // Conflict detected during unit propagation
-            if (current_level > 0) {
-                // Try backjumping
-                int backjump_level = analyze_conflict();
-                if (backjump_level < current_level - 1) {
-                    // Non-chronological backtrack (backjump)
-                    stats.backjumps++;
-                    backtrack_to_level(backjump_level);
-                    return false;
-                }
-            }
-            // Chronological backtrack
             stats.backtracks++;
             return false;
         }
     } else {
-        // Check for conflicts even without propagation
-        for (const auto& clause : clauses) {
-            if (is_clause_conflicting(clause)) {
-                stats.backtracks++;
-                return false;
-            }
+        // When unit propagation is disabled, still check for conflicts
+        if (!check_for_conflicts()) {
+            stats.backtracks++;
+            return false;
         }
     }
     
     // Pure literal elimination
     if (do_pure_literal) {
         pure_literal_assign();
-        // Update levels for pure literals
-        for (int var = 0; var < num_vars; ++var) {
-            if (assignment[var] != -1 && var_level[var] == -1) {
-                var_level[var] = current_level;
-            }
-        }
     }
     
     // Check if all variables are assigned
@@ -878,40 +883,54 @@ private:
     current_level++;
     decision_stack.push_back(var);
     
-    // Save state for backtracking
-    std::vector<int> old_assignment = assignment;
-    std::vector<int> old_var_level = var_level;
-    int old_level = current_level;
+    // FIXED: Use trail-based backtracking
+    // Remember where this decision level starts in the trail
+    int trail_marker = trail.size();
+    trail_lim.push_back(trail_marker);
     
     // Try assigning true
     assignment[var] = 1;
     var_level[var] = current_level;
+    trail.push_back(var);  // Add decision to trail
     
     if (dpll(do_unit_prop, do_pure_literal, do_vsids)) {
         return true;
     }
     
-    // Restore state and try false
-    assignment = old_assignment;
-    var_level = old_var_level;
-    current_level = old_level;
+    // FIXED: Undo all assignments made at this level using trail
+    while (trail.size() > trail_marker) {
+        int v = trail.back();
+        trail.pop_back();
+        assignment[v] = -1;
+        var_level[v] = -1;
+    }
     
+    // Try assigning false
     assignment[var] = 0;
     var_level[var] = current_level;
+    trail.push_back(var);  // Add to trail
     
     if (dpll(do_unit_prop, do_pure_literal, do_vsids)) {
         return true;
     }
     
     // Both failed - backtrack
-    assignment = old_assignment;
-    var_level = old_var_level;
-    current_level = old_level - 1;
-    decision_stack.pop_back();
-    stats.backtracks++;
+    // Undo all assignments made at this level
+    while (trail.size() > trail_marker) {
+        int v = trail.back();
+        trail.pop_back();
+        assignment[v] = -1;
+        var_level[v] = -1;
+    }
     
+    current_level--;
+    decision_stack.pop_back();
+    trail_lim.pop_back();
+    
+    // FIXED VSIDS: Bump score on conflicts (simplified - still not full VSIDS)
     if (do_vsids) {
         vsids_scores[var] += 1.0;
+        // Decay all scores periodically
         if (stats.decisions % 100 == 0) {
             for (int v = 0; v < num_vars; ++v) {
                 vsids_scores[v] *= 0.95;
